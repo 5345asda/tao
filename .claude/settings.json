@@ -1,0 +1,15 @@
+{
+  "autoUpdatesChannel": "latest",
+  "env": {
+    "ANTHROPIC_AUTH_TOKEN": "804014eb281b4d518e03a60759c09a39.o6dnPuHdeQZHXnFR",
+    "ANTHROPIC_BASE_URL": "https://open.bigmodel.cn/api/anthropic",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "GLM-5",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "GLM-5",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "GLM-5",
+    "ANTHROPIC_MODEL": "GLM-5",
+    "ANTHROPIC_REASONING_MODEL": "GLM-5",
+    "API_TIMEOUT_MS": "3000000",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "CLAUDE_CODE_GIT_BASH_PATH": "C:/Program Files/Git/bin/bash.exe"
+  }
+}

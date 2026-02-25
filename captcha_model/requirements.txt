@@ -1,0 +1,9 @@
+torch
+torchvision
+efficientnet_pytorch
+onnx
+onnxruntime
+Pillow
+numpy
+tqdm
+tensorboard
