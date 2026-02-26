@@ -18,8 +18,6 @@ from baidu_api import BaiduAPIError, BaiduCaptchaAPI
 from config import (
     AK,
     API_TIMEOUT,
-    CONTINUOUS_FAIL_LIMIT,
-    CONTINUOUS_FAIL_PAUSE,
     DELAY_BETWEEN_REQUESTS,
     HASH_FILE,
     MAX_WORKERS,
@@ -45,8 +43,6 @@ class ExhaustiveCollector:
 
         self.probe_steps = PROBE_STEPS
         self.verify_delay = VERIFY_DELAY
-        self.fail_limit = CONTINUOUS_FAIL_LIMIT
-        self.fail_pause = CONTINUOUS_FAIL_PAUSE
         self.num_classes = NUM_CLASSES
         self.target_count = TARGET_COUNT
 
@@ -56,8 +52,6 @@ class ExhaustiveCollector:
         self.stats: dict[str, int] = {"success": 0, "failed": 0, "duplicate": 0, "total": 0}
         self._stats_lock = threading.Lock()
         self._print_lock = threading.Lock()
-        self._continuous_fails = 0
-        self._fail_lock = threading.Lock()
 
     def _get_captcha(self) -> tuple[dict, bytes, str, str]:
         """获取验证码，返回 (init_data, img_bytes, img_url, backstr)。"""
@@ -196,20 +190,6 @@ class ExhaustiveCollector:
         with self._stats_lock:
             self.stats[key] += delta
 
-    def _check_and_increment_fail(self) -> bool:
-        """检查连续失败并递增，返回是否需要暂停。"""
-        with self._fail_lock:
-            self._continuous_fails += 1
-            if self._continuous_fails >= self.fail_limit:
-                self._continuous_fails = 0
-                return True
-            return False
-
-    def _reset_fail_count(self) -> None:
-        """重置连续失败计数。"""
-        with self._fail_lock:
-            self._continuous_fails = 0
-
     def _process_single(self, task_id: int) -> dict:
         """处理单个收集任务（供线程池调用）。"""
         result: dict[str, object] = {"task_id": task_id, "status": "failed"}
@@ -301,7 +281,6 @@ class ExhaustiveCollector:
 
                         if result["status"] == "success":
                             self._update_stats("success")
-                            self._reset_fail_count()
                             collected += 1
                             probe = result.get("probe")
                             angle_range = result.get("angle_range")
@@ -323,9 +302,6 @@ class ExhaustiveCollector:
                         else:
                             self._update_stats("failed")
                             self._print_status(task_num, None, None, "failed")
-                            if self._check_and_increment_fail():
-                                print(f"\n连续失败 {self.fail_limit} 次，暂停 {self.fail_pause}s...")
-                                time.sleep(self.fail_pause)
 
                         # 补充新任务
                         if collected < target and task_id < max_attempts:
