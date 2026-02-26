@@ -45,4 +45,4 @@ TARGET_COUNT = 1000              # 目标收集数量
 DELAY_BETWEEN_REQUESTS = 0.5     # 请求间隔(秒)
 
 # 并发配置
-MAX_WORKERS = 30                 # 最大并发线程数
+MAX_WORKERS = 2                  # 最大并发线程数
