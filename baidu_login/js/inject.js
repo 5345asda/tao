@@ -156,50 +156,39 @@
          * 勾选协议
          */
         checkAgreement: function() {
-            // 尝试多种选择器
-            const selectors = [
-                'input[type="checkbox"]',
-                '.agreement-checkbox',
-                '.protocol-checkbox',
-                '[class*="checkbox"]',
-                '[class*="agree"]'
-            ];
-
-            for (const selector of selectors) {
-                const elements = document.querySelectorAll(selector);
-                for (const el of elements) {
-                    if (el.tagName === 'INPUT' && el.type === 'checkbox' && !el.checked) {
-                        el.click();
-                        console.log('[JSRPC] Checkbox clicked via input');
-                        return { status: 'checked', method: 'input' };
-                    }
-                    // 对于非 input 元素，检查是否是协议相关的
-                    if (el.textContent && (el.textContent.includes('协议') || el.textContent.includes('同意'))) {
-                        el.click();
-                        console.log('[JSRPC] Agreement clicked via text');
-                        return { status: 'checked', method: 'text' };
-                    }
+            // 方法1: 直接操作 checkbox
+            const checkbox = document.querySelector('input[type="checkbox"]');
+            if (checkbox) {
+                if (!checkbox.checked) {
+                    // 设置 checked 属性
+                    checkbox.checked = true;
+                    // 触发所有可能的事件
+                    checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+                    checkbox.dispatchEvent(new Event('input', { bubbles: true }));
+                    checkbox.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+                    console.log('[JSRPC] Checkbox set to checked');
                 }
+                return { status: 'checked', method: 'checkbox', checked: checkbox.checked };
             }
 
-            // 最后尝试点击包含协议文本的父容器
-            const allElements = document.querySelectorAll('*');
-            for (const el of allElements) {
-                if (el.textContent && el.textContent.includes('请您阅读并同意')) {
-                    // 找到协议容器，点击其内部的可点击区域
-                    const clickable = el.querySelector('[class*="check"]') ||
-                                     el.querySelector('[class*="select"]') ||
-                                     el.querySelector('span') ||
-                                     el;
-                    if (clickable) {
-                        clickable.click();
-                        console.log('[JSRPC] Agreement container clicked');
-                        return { status: 'checked', method: 'container' };
-                    }
-                }
+            // 方法2: 点击协议区域
+            const agreementArea = document.querySelector('[class*="agreement"]') ||
+                                  document.querySelector('[class*="protocol"]');
+            if (agreementArea) {
+                agreementArea.click();
+                console.log('[JSRPC] Agreement area clicked');
+                return { status: 'checked', method: 'area' };
             }
 
             return { status: 'checked', method: 'fallback' };
+        },
+
+        /**
+         * 检查协议是否已勾选
+         */
+        isAgreementChecked: function() {
+            const checkbox = document.querySelector('input[type="checkbox"]');
+            return checkbox ? checkbox.checked : false;
         },
 
         /**
@@ -208,13 +197,21 @@
         clickLogin: function() {
             const buttons = document.querySelectorAll('button');
             for (let btn of buttons) {
-                if (btn.textContent.includes('登') && !btn.disabled) {
+                const text = btn.textContent || '';
+                if ((text.includes('登') || text.includes('Login')) && !btn.disabled) {
                     btn.click();
                     window._baiduLoginState = 'triggered';
-                    return { status: 'clicked' };
+                    console.log('[JSRPC] Login button clicked');
+                    return { status: 'clicked', disabled: btn.disabled };
                 }
             }
-            return { status: 'error', message: 'Login button not found or disabled' };
+            // 如果按钮被禁用，返回原因
+            for (let btn of buttons) {
+                if (btn.textContent.includes('登')) {
+                    return { status: 'error', message: 'Login button disabled', disabled: btn.disabled };
+                }
+            }
+            return { status: 'error', message: 'Login button not found' };
         },
 
         /**
@@ -232,6 +229,23 @@
             }
 
             // 勾选协议
+            this.checkAgreement();
+
+            // 验证协议是否勾选成功
+            const agreementOk = this.isAgreementChecked();
+            console.log('[JSRPC] Agreement checked:', agreementOk);
+
+            // 延迟点击登录按钮，确保页面状态更新
+            setTimeout(() => {
+                const clickResult = this.clickLogin();
+                if (clickResult.status === 'error') {
+                    console.error('[JSRPC] Click login failed:', clickResult.message);
+                    window._baiduLoginState = 'error';
+                }
+            }, 300);
+
+            return { status: 'triggered', agreementChecked: agreementOk };
+        },
             this.checkAgreement();
 
             // 延迟点击登录按钮
