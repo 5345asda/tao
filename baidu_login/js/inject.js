@@ -246,15 +246,6 @@
 
             return { status: 'triggered', agreementChecked: agreementOk };
         },
-            this.checkAgreement();
-
-            // 延迟点击登录按钮
-            setTimeout(() => {
-                this.clickLogin();
-            }, 100);
-
-            return { status: 'triggered' };
-        },
 
         /**
          * 等待加密参数生成
