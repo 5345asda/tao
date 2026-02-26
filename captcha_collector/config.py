@@ -27,13 +27,13 @@ API_AK = AK
 API_REFERER = REFERER
 
 # 穷举配置
-# 步长探测序列 (10个固定点，覆盖 72°-300° 范围)
+# 步长探测序列（10个固定点，覆盖 72°-300° 范围）
 PROBE_STEPS = [20, 27, 34, 41, 48, 55, 62, 69, 76, 83]
 
 # 请求控制
-VERIFY_DELAY = 0.05              # 每次验证后等待时间 (秒)
+VERIFY_DELAY = 0.05              # 每次验证后等待时间(秒)
 CONTINUOUS_FAIL_LIMIT = 5        # 连续失败阈值
-CONTINUOUS_FAIL_PAUSE = 30       # 连续失败后暂停时间 (秒)
+CONTINUOUS_FAIL_PAUSE = 30       # 连续失败后暂停时间(秒)
 NETWORK_RETRY = 3                # 网络错误重试次数
 NETWORK_RETRY_DELAY = 2          # 网络错误重试间隔 (秒)
 
@@ -41,5 +41,8 @@ NETWORK_RETRY_DELAY = 2          # 网络错误重试间隔 (秒)
 HASH_FILE = os.path.join(OUTPUT_DIR, ".hashes.txt")
 
 # 收集配置
-TARGET_COUNT = 1000  # 目标收集数量
-DELAY_BETWEEN_REQUESTS = 0.5  # 请求间隔（秒）
+TARGET_COUNT = 1000              # 目标收集数量
+DELAY_BETWEEN_REQUESTS = 0.5     # 请求间隔(秒)
+
+# 并发配置
+MAX_WORKERS = 30                 # 最大并发线程数

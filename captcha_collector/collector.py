@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import sys
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Set, Tuple
@@ -16,33 +18,27 @@ from baidu_api import BaiduAPIError, BaiduCaptchaAPI
 from config import (
     AK,
     API_TIMEOUT,
+    CONTINUOUS_FAIL_LIMIT,
+    CONTINUOUS_FAIL_PAUSE,
     DELAY_BETWEEN_REQUESTS,
+    HASH_FILE,
+    MAX_WORKERS,
+    NETWORK_RETRY,
+    NETWORK_RETRY_DELAY,
     NUM_CLASSES,
     OUTPUT_DIR,
+    PROBE_STEPS,
     REFERER,
     TARGET_COUNT,
+    VERIFY_DELAY,
 )
 from dedup import DedupManager
 
 
 class ExhaustiveCollector:
-    """穷举式数据收集器: 步长探测 + 边界扩展。"""
+    """穷举式数据收集器: 步长探测 + 边界扩展（支持高并发）。"""
 
     def __init__(self) -> None:
-        from config import (
-            API_TIMEOUT,
-            AK,
-            CONTINUOUS_FAIL_LIMIT,
-            CONTINUOUS_FAIL_PAUSE,
-            HASH_FILE,
-            NUM_CLASSES,
-            OUTPUT_DIR,
-            PROBE_STEPS,
-            REFERER,
-            TARGET_COUNT,
-            VERIFY_DELAY,
-        )
-
         self.api = BaiduCaptchaAPI(ak=AK, referer=REFERER, timeout=API_TIMEOUT)
         self.output_dir = Path(OUTPUT_DIR)
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -56,9 +52,12 @@ class ExhaustiveCollector:
 
         self.dedup = DedupManager(HASH_FILE)
 
-        # 统计信息
+        # 统计信息（线程安全）
         self.stats: dict[str, int] = {"success": 0, "failed": 0, "duplicate": 0, "total": 0}
+        self._stats_lock = threading.Lock()
+        self._print_lock = threading.Lock()
         self._continuous_fails = 0
+        self._fail_lock = threading.Lock()
 
     def _get_captcha(self) -> tuple[dict, bytes, str, str]:
         """获取验证码，返回 (init_data, img_bytes, img_url, backstr)。"""
@@ -74,8 +73,6 @@ class ExhaustiveCollector:
 
     def _verify_with_retry(self, tk: str, as_token: str, backstr: str, angle: int) -> bool:
         """带重试的验证。"""
-        from config import NETWORK_RETRY, NETWORK_RETRY_DELAY
-
         for attempt in range(NETWORK_RETRY):
             try:
                 return self.api.verify(tk, as_token, backstr, angle)
@@ -182,16 +179,65 @@ class ExhaustiveCollector:
         angle_range: list[int] | None,
         status: str,
     ) -> None:
-        """打印状态信息。"""
-        timestamp = datetime.now().strftime("%H:%M:%S")
+        """打印状态信息（线程安全）。"""
+        with self._print_lock:
+            timestamp = datetime.now().strftime("%H:%M:%S")
 
-        if status == "success" and angle_range:
-            left, right = angle_range[0], angle_range[-1]
-            print(f"[{timestamp}] #{index:<3d} probe:{probe} OK  range:[{left}-{right}]  [success]")
-        elif status == "failed":
-            print(f"[{timestamp}] #{index:<3d} all probes failed              [failed]")
-        elif status == "duplicate":
-            print(f"[{timestamp}] #{index:<3d} probe:{probe} OK  duplicate      [duplicate]")
+            if status == "success" and angle_range:
+                left, right = angle_range[0], angle_range[-1]
+                print(f"[{timestamp}] #{index:<3d} probe:{probe} OK  range:[{left}-{right}]  [OK]")
+            elif status == "failed":
+                print(f"[{timestamp}] #{index:<3d} all probes failed              [FAIL]")
+            elif status == "duplicate":
+                print(f"[{timestamp}] #{index:<3d} probe:{probe} OK  duplicate      [DUP]")
+
+    def _update_stats(self, key: str, delta: int = 1) -> None:
+        """更新统计信息（线程安全）。"""
+        with self._stats_lock:
+            self.stats[key] += delta
+
+    def _check_and_increment_fail(self) -> bool:
+        """检查连续失败并递增，返回是否需要暂停。"""
+        with self._fail_lock:
+            self._continuous_fails += 1
+            if self._continuous_fails >= self.fail_limit:
+                self._continuous_fails = 0
+                return True
+            return False
+
+    def _reset_fail_count(self) -> None:
+        """重置连续失败计数。"""
+        with self._fail_lock:
+            self._continuous_fails = 0
+
+    def _process_single(self, task_id: int) -> dict:
+        """处理单个收集任务（供线程池调用）。"""
+        result: dict[str, object] = {"task_id": task_id, "status": "failed"}
+
+        try:
+            # 步长探测
+            success_angle, img_bytes, tk, as_token, backstr = self.probe_for_success()
+            if success_angle is None:
+                return result
+
+            result["probe"] = success_angle
+
+            # 去重检查
+            if self.dedup.exists(img_bytes):
+                result["status"] = "duplicate"
+                return result
+
+            # 边界扩展并保存
+            angle_range = self.expand_boundaries(success_angle, tk, as_token, backstr)
+            filepath = self.save_image(img_bytes, angle_range)
+
+            result["status"] = "success"
+            result["angle_range"] = angle_range
+            result["filepath"] = str(filepath)
+        except Exception as error:
+            result["error"] = str(error)
+
+        return result
 
     def _print_summary(self) -> None:
         """打印汇总信息。"""
@@ -206,57 +252,88 @@ class ExhaustiveCollector:
         )
 
     def run(self, num_images: int | None = None) -> None:
-        """运行收集器。"""
+        """运行收集器（高并发模式）。"""
         target = num_images or self.target_count
+        max_workers = MAX_WORKERS
 
         print("=" * 60)
-        print("穷举数据收集器 - 步长探测 + 边界扩展")
+        print("穷举数据收集器 - 步长探测 + 边界扩展 [高并发模式]")
         print("=" * 60)
         print(f"探测序列: {self.probe_steps}")
         print(f"目标数量: {target}")
+        print(f"并发线程: {max_workers}")
         print(f"已去重: {len(self.dedup)} 条")
         print("-" * 60)
 
         collected = 0
-        attempts = 0
+        task_id = 0
         max_attempts = target * 10
 
-        while collected < target and attempts < max_attempts:
-            attempts += 1
-            self.stats["total"] += 1
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures: dict = {}
 
-            try:
-                # 第一步: 用固定探测点找到成功角度
-                success_angle, img_bytes, tk, as_token, backstr = self.probe_for_success()
-                if success_angle is None:
-                    self.stats["failed"] += 1
-                    self._print_status(attempts, None, None, "failed")
-                    self._continuous_fails += 1
+            # 初始提交一批任务，保持线程池持续忙碌
+            for _ in range(max_workers * 2):
+                if task_id >= max_attempts:
+                    break
+                task_id += 1
+                future = executor.submit(self._process_single, task_id)
+                futures[future] = task_id
 
-                    if self._continuous_fails >= self.fail_limit:
-                        print(f"\n连续失败 {self._continuous_fails} 次，暂停 {self.fail_pause}s...")
-                        time.sleep(self.fail_pause)
-                        self._continuous_fails = 0
+            while collected < target and futures:
+                done_futures = []
+                try:
+                    future_iter = as_completed(list(futures.keys()), timeout=0.05)
+                    for done_future in future_iter:
+                        done_futures.append(done_future)
+                except TimeoutError:
+                    pass
 
+                if not done_futures:
+                    time.sleep(0.01)
                     continue
 
-                # 去重命中则跳过保存
-                if self.dedup.exists(img_bytes):
-                    self.stats["duplicate"] += 1
-                    self._print_status(attempts, success_angle, None, "duplicate")
-                    continue
+                for future in done_futures:
+                    task_num = futures.pop(future)
+                    try:
+                        result = future.result()
+                        self._update_stats("total")
 
-                # 第二步: 从成功角度向两侧扩边并保存
-                angle_range = self.expand_boundaries(success_angle, tk, as_token, backstr)
-                self.save_image(img_bytes, angle_range)
-                self.stats["success"] += 1
-                self._continuous_fails = 0
-                collected += 1
+                        if result["status"] == "success":
+                            self._update_stats("success")
+                            self._reset_fail_count()
+                            collected += 1
+                            probe = result.get("probe")
+                            angle_range = result.get("angle_range")
+                            self._print_status(
+                                task_num,
+                                probe if isinstance(probe, int) else None,
+                                angle_range if isinstance(angle_range, list) else None,
+                                "success",
+                            )
+                        elif result["status"] == "duplicate":
+                            self._update_stats("duplicate")
+                            probe = result.get("probe")
+                            self._print_status(
+                                task_num,
+                                probe if isinstance(probe, int) else None,
+                                None,
+                                "duplicate",
+                            )
+                        else:
+                            self._update_stats("failed")
+                            self._print_status(task_num, None, None, "failed")
+                            if self._check_and_increment_fail():
+                                print(f"\n连续失败 {self.fail_limit} 次，暂停 {self.fail_pause}s...")
+                                time.sleep(self.fail_pause)
 
-                self._print_status(attempts, success_angle, angle_range, "success")
-            except Exception as error:
-                print(f"[错误] {error}")
-                time.sleep(1)
+                        # 补充新任务
+                        if collected < target and task_id < max_attempts:
+                            task_id += 1
+                            new_future = executor.submit(self._process_single, task_id)
+                            futures[new_future] = task_id
+                    except Exception as error:
+                        print(f"[错误] 任务 {task_num}: {error}")
 
         self._print_summary()
         print(f"\n数据目录: {self.output_dir}")
