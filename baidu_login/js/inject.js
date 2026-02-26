@@ -156,11 +156,50 @@
          * 勾选协议
          */
         checkAgreement: function() {
-            const checkbox = document.querySelector('input[type="checkbox"]');
-            if (checkbox && !checkbox.checked) {
-                checkbox.click();
+            // 尝试多种选择器
+            const selectors = [
+                'input[type="checkbox"]',
+                '.agreement-checkbox',
+                '.protocol-checkbox',
+                '[class*="checkbox"]',
+                '[class*="agree"]'
+            ];
+
+            for (const selector of selectors) {
+                const elements = document.querySelectorAll(selector);
+                for (const el of elements) {
+                    if (el.tagName === 'INPUT' && el.type === 'checkbox' && !el.checked) {
+                        el.click();
+                        console.log('[JSRPC] Checkbox clicked via input');
+                        return { status: 'checked', method: 'input' };
+                    }
+                    // 对于非 input 元素，检查是否是协议相关的
+                    if (el.textContent && (el.textContent.includes('协议') || el.textContent.includes('同意'))) {
+                        el.click();
+                        console.log('[JSRPC] Agreement clicked via text');
+                        return { status: 'checked', method: 'text' };
+                    }
+                }
             }
-            return { status: 'checked' };
+
+            // 最后尝试点击包含协议文本的父容器
+            const allElements = document.querySelectorAll('*');
+            for (const el of allElements) {
+                if (el.textContent && el.textContent.includes('请您阅读并同意')) {
+                    // 找到协议容器，点击其内部的可点击区域
+                    const clickable = el.querySelector('[class*="check"]') ||
+                                     el.querySelector('[class*="select"]') ||
+                                     el.querySelector('span') ||
+                                     el;
+                    if (clickable) {
+                        clickable.click();
+                        console.log('[JSRPC] Agreement container clicked');
+                        return { status: 'checked', method: 'container' };
+                    }
+                }
+            }
+
+            return { status: 'checked', method: 'fallback' };
         },
 
         /**
