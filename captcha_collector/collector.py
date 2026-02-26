@@ -87,8 +87,13 @@ class ExhaustiveCollector:
 
         return False
 
-    def probe_for_success(self) -> tuple[int | None, bytes, dict]:
-        """步长探测，找到第一个成功角度。"""
+    def probe_for_success(self) -> tuple[int | None, bytes, str, str, str]:
+        """步长探测，找到第一个成功角度。
+
+        Returns:
+            (成功角度, 图片字节, tk, as_token, backstr)
+            如果全部失败，返回 (None, img_bytes, tk, as_token, backstr)
+        """
         init_data, img_bytes, _img_url, backstr = self._get_captcha()
         tk = init_data["tk"]
         as_token = init_data["as"]
@@ -97,7 +102,7 @@ class ExhaustiveCollector:
             try:
                 is_success = self._verify_with_retry(tk, as_token, backstr, probe_angle)
                 if is_success:
-                    return probe_angle, img_bytes, init_data
+                    return probe_angle, img_bytes, tk, as_token, backstr
 
                 time.sleep(self.verify_delay)
 
@@ -111,21 +116,16 @@ class ExhaustiveCollector:
                 tk = init_data["tk"]
                 as_token = init_data["as"]
 
-        return None, img_bytes, init_data
+        return None, img_bytes, tk, as_token, backstr
 
-    def expand_boundaries(self, center: int, img_bytes: bytes) -> list[int]:
-        """从成功角度向左右扩展边界。"""
-        _ = img_bytes
+    def expand_boundaries(self, center: int, tk: str, as_token: str, backstr: str) -> list[int]:
+        """从中心角度向左右扩展边界（复用同一个 tk/as/backstr）。"""
         successful_angles: list[int] = [center]
 
         # 向左扩展
         angle = center - 1
         while angle >= 0:
             try:
-                init_data, _new_img_bytes, _img_url, backstr = self._get_captcha()
-                tk = init_data["tk"]
-                as_token = init_data["as"]
-
                 is_success = self._verify_with_retry(tk, as_token, backstr, angle)
                 if is_success:
                     successful_angles.append(angle)
@@ -141,10 +141,6 @@ class ExhaustiveCollector:
         angle = center + 1
         while angle < self.num_classes:
             try:
-                init_data, _new_img_bytes, _img_url, backstr = self._get_captcha()
-                tk = init_data["tk"]
-                as_token = init_data["as"]
-
                 is_success = self._verify_with_retry(tk, as_token, backstr, angle)
                 if is_success:
                     successful_angles.append(angle)
@@ -231,7 +227,7 @@ class ExhaustiveCollector:
 
             try:
                 # 第一步: 用固定探测点找到成功角度
-                success_angle, img_bytes, _ = self.probe_for_success()
+                success_angle, img_bytes, tk, as_token, backstr = self.probe_for_success()
                 if success_angle is None:
                     self.stats["failed"] += 1
                     self._print_status(attempts, None, None, "failed")
@@ -251,7 +247,7 @@ class ExhaustiveCollector:
                     continue
 
                 # 第二步: 从成功角度向两侧扩边并保存
-                angle_range = self.expand_boundaries(success_angle, img_bytes)
+                angle_range = self.expand_boundaries(success_angle, tk, as_token, backstr)
                 self.save_image(img_bytes, angle_range)
                 self.stats["success"] += 1
                 self._continuous_fails = 0
