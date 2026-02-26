@@ -106,14 +106,14 @@ if __name__ == "__main__":
     for name, test_func in tests:
         try:
             test_func()
-            print(f"✅ {name}")
+            print(f"[PASS] {name}")
             passed += 1
         except AssertionError as e:
-            print(f"❌ {name}: {e}")
+            print(f"[FAIL] {name}: {e}")
             failed += 1
         except Exception as e:
-            print(f"❌ {name}: {type(e).__name__}: {e}")
+            print(f"[FAIL] {name}: {type(e).__name__}: {e}")
             traceback.print_exc()
             failed += 1
 
-    print(f"\n结果: {passed} 通过, {failed} 失败")
+    print(f"\nResult: {passed} passed, {failed} failed")
