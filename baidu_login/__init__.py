@@ -8,15 +8,32 @@ from .jsrpc_client import (
     BaiduLoginTimeoutError,
     EncryptedLoginParams,
 )
+from .login_handler import (
+    AntiReplayToken,
+    BaiduLoginHandler,
+    BaiduLoginHandlerError,
+    BaiduLoginRequestError,
+    CaptchaChallenge,
+    CaptchaSolution,
+    LoginResult,
+    RetryPolicy,
+)
 from .proxy_server import create_app
 
 __all__ = [
     "AESKeyResult",
+    "AntiReplayToken",
     "BaiduLoginClientError",
+    "BaiduLoginHandler",
+    "BaiduLoginHandlerError",
     "BaiduLoginInjectionError",
     "BaiduLoginJSRPCClient",
+    "BaiduLoginRequestError",
     "BaiduLoginTimeoutError",
+    "CaptchaChallenge",
+    "CaptchaSolution",
     "EncryptedLoginParams",
+    "LoginResult",
+    "RetryPolicy",
     "create_app",
 ]
-
