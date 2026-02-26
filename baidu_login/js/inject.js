@@ -153,31 +153,32 @@
         },
 
         /**
-         * 勾选协议
+         * 勾选协议 - 使用百度登录页的协议按钮
          */
         checkAgreement: function() {
-            // 方法1: 直接操作 checkbox
-            const checkbox = document.querySelector('input[type="checkbox"]');
-            if (checkbox) {
-                if (!checkbox.checked) {
-                    // 设置 checked 属性
-                    checkbox.checked = true;
-                    // 触发所有可能的事件
-                    checkbox.dispatchEvent(new Event('change', { bubbles: true }));
-                    checkbox.dispatchEvent(new Event('input', { bubbles: true }));
-                    checkbox.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-                    console.log('[JSRPC] Checkbox set to checked');
+            // 找到协议按钮（百度使用 button.aggreement-button）
+            const agreeBtn = document.querySelector('button.aggreement-button') ||
+                            document.querySelector('.aggreement-button') ||
+                            document.querySelector('[class*="agree"]');
+
+            if (agreeBtn) {
+                // 检查是否已勾选
+                const isAgreed = agreeBtn.classList.contains('had-agree-icon') ||
+                                agreeBtn.className.includes('had-agree');
+
+                if (!isAgreed) {
+                    agreeBtn.click();
+                    console.log('[JSRPC] Agreement button clicked');
+                    return { status: 'checked', method: 'agree-button' };
                 }
-                return { status: 'checked', method: 'checkbox', checked: checkbox.checked };
+                return { status: 'already-checked', method: 'agree-button' };
             }
 
-            // 方法2: 点击协议区域
-            const agreementArea = document.querySelector('[class*="agreement"]') ||
-                                  document.querySelector('[class*="protocol"]');
-            if (agreementArea) {
-                agreementArea.click();
-                console.log('[JSRPC] Agreement area clicked');
-                return { status: 'checked', method: 'area' };
+            // 备用: 尝试点击 checkbox
+            const checkbox = document.querySelector('input[type="checkbox"]');
+            if (checkbox && !checkbox.checked) {
+                checkbox.click();
+                return { status: 'checked', method: 'checkbox' };
             }
 
             return { status: 'checked', method: 'fallback' };
@@ -187,6 +188,12 @@
          * 检查协议是否已勾选
          */
         isAgreementChecked: function() {
+            const agreeBtn = document.querySelector('button.aggreement-button') ||
+                            document.querySelector('.aggreement-button');
+            if (agreeBtn) {
+                return agreeBtn.classList.contains('had-agree-icon') ||
+                       agreeBtn.className.includes('had-agree');
+            }
             const checkbox = document.querySelector('input[type="checkbox"]');
             return checkbox ? checkbox.checked : false;
         },
@@ -216,35 +223,37 @@
 
         /**
          * 触发完整登录流程
+         * 注意：必须先填写表单，再勾选协议，否则登录按钮不会启用
          */
         triggerLogin: function(username, password) {
             // 重置状态
             window._baiduLoginParams = null;
             window._baiduLoginState = 'idle';
 
-            // 填写表单
+            // Step 1: 填写表单（必须先执行，否则登录按钮不会启用）
             const fillResult = this.fillForm(username, password);
             if (fillResult.status === 'error') {
+                console.error('[JSRPC] Fill form failed:', fillResult.message);
                 return fillResult;
             }
+            console.log('[JSRPC] Form filled');
 
-            // 勾选协议
-            this.checkAgreement();
+            // Step 2: 勾选协议（在表单填写后执行）
+            const agreeResult = this.checkAgreement();
+            console.log('[JSRPC] Agreement result:', agreeResult);
 
-            // 验证协议是否勾选成功
-            const agreementOk = this.isAgreementChecked();
-            console.log('[JSRPC] Agreement checked:', agreementOk);
-
-            // 延迟点击登录按钮，确保页面状态更新
+            // Step 3: 延迟点击登录按钮，确保页面状态更新
             setTimeout(() => {
                 const clickResult = this.clickLogin();
                 if (clickResult.status === 'error') {
                     console.error('[JSRPC] Click login failed:', clickResult.message);
                     window._baiduLoginState = 'error';
+                } else {
+                    console.log('[JSRPC] Login button clicked successfully');
                 }
-            }, 300);
+            }, 500);
 
-            return { status: 'triggered', agreementChecked: agreementOk };
+            return { status: 'triggered', fillResult: fillResult, agreeResult: agreeResult };
         },
 
         /**
